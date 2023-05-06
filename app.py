@@ -12,6 +12,13 @@ ratings = pd.read_csv('ml-latest-small/ratings.csv')
 # Convert ratings to a pivot table
 ratings_matrix = ratings.pivot_table(index=['userId'], columns=['movieId'], values='rating')
 
+import json
+
+# Create a JSON file of movie titles
+@app.route('/movies.json')
+def movies_json():
+    movie_titles = movies[['movieId', 'title']].to_dict(orient='records')
+    return json.dumps(movie_titles)
 
 @app.route('/')
 def home():
@@ -28,8 +35,11 @@ def recommend_movies():
     # Calculate the similarity matrix between movies
     movie_similarity = cosine_similarity(ratings_matrix.fillna(0).T)
 
+    # Set the index according to the movie ID
+    movie_similarity = pd.DataFrame(movie_similarity, index=ratings_matrix.columns, columns=ratings_matrix.columns)
+
     # Get the top 10 most similar movies
-    similar_movies = pd.DataFrame(movie_similarity).iloc[movie_id - 1].nlargest(11)[1:].index
+    similar_movies = movie_similarity.loc[movie_id].nlargest(11)[1:].index
 
     # Find the common movie IDs in similar_movies and ratings_matrix
     common_movie_ids = set(similar_movies).intersection(ratings_matrix.columns)
