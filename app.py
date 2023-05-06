@@ -8,7 +8,13 @@ app = Flask(__name__)
 # Load movie and rating data
 movies = pd.read_csv('ml-latest-small/movies.csv')
 ratings = pd.read_csv('ml-latest-small/ratings.csv')
+# Extract all unique genres
+unique_genres = set()
+for index, row in movies.iterrows():
+    genres = row['genres'].split('|')
+    unique_genres.update(genres)
 
+unique_genres = sorted(list(unique_genres))
 # Convert ratings to a pivot table
 ratings_matrix = ratings.pivot_table(index=['userId'], columns=['movieId'], values='rating')
 
@@ -22,7 +28,24 @@ def movies_json():
 
 @app.route('/')
 def home():
-    return render_template('index.html')
+    return render_template('index.html', unique_genres=unique_genres)
+
+
+@app.route('/recommend_genre', methods=['POST'])
+def recommend_genre():
+    genre = request.form['genre']
+    recommended_movies = recommend_movies_by_genre(genre)
+    return render_template('recommend.html', movie_title=f"Top {genre} Movies", recommended_movies=recommended_movies.to_dict('records'))
+
+def recommend_movies_by_genre(genre):
+    # Filter movies by the selected genre
+    genre_movies = movies[movies['genres'].str.contains(genre)]
+
+    # Get the top 10 highest-rated movies in the selected genre
+    recommended_movies = genre_movies.merge(ratings.groupby('movieId')['rating'].mean().reset_index(),
+                                            on='movieId').nlargest(10, 'rating')
+
+    return recommended_movies[['title', 'genres', 'rating']]
 
 
 @app.route('/recommend', methods=['POST'])
