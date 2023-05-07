@@ -1,0 +1,56 @@
+    <!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Movie Recommender Chatbot</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+<div class="container mt-5">
+    <h1 class="text-center mb-4">Movie Recommender Chatbot</h1>
+    <div id="chat-container" class="border p-3 mb-3" style="height: 400px; overflow-y: auto;">
+        <!-- Chat messages will be added here -->
+        <div class="chatbot-message">
+                    <p>Hey, I'm the recommender chatbot, and currently, I can help you find a movie you may like. You can write down movies you like or genres you'd like to watch.</p>
+                </div>
+    </div>
+    <form id="chat-form" class="d-flex">
+        <input type="text" id="message-input" class="form-control" placeholder="Type your message...">
+        <button type="submit" class="btn btn-primary ms-2">Send</button>
+    </form>
+</div>
+<script>
+const chatContainer = document.getElementById('chat-container');
+const chatForm = document.getElementById('chat-form');
+const messageInput = document.getElementById('message-input');
+
+chatForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const message = messageInput.value.trim();
+    if (!message) return;
+
+    // Kullanıcı mesajını sohbete ekleyin
+    addMessageToChat('User', message);
+    messageInput.value = '';
+
+    // Chatbot'un yanıtını al ve sohbete ekle
+    const response = await fetch('/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message }),
+    });
+    const data = await response.json();
+    const botMessage = data.bot_message;
+    addMessageToChat('Bot', botMessage);
+});
+
+function addMessageToChat(sender, message) {
+    const messageElement = document.createElement('div');
+    messageElement.textContent = `${sender}: ${message}`;
+    chatContainer.appendChild(messageElement);
+    chatContainer.scrollTop = chatContainer.scrollHeight;
+}
+</script>
+</body>
+</html>
