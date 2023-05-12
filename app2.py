@@ -7,6 +7,20 @@ app = Flask(__name__)
 
 movies = pd.read_csv('ml-latest-small/movies.csv')
 ratings = pd.read_csv('ml-latest-small/ratings.csv')
+links = pd.read_csv('ml-latest-small/links.csv')
+imdb_crew = pd.read_csv('ml-latest-small/title_crew.tsv', delimiter='\t')
+imdb_names = pd.read_csv('ml-latest-small/name_basic.tsv', delimiter='\t')
+
+imdb_crew['tconst'] = imdb_crew['tconst'].str[2:].astype(int)  # remove 'tt' prefix before converting
+merged_df = pd.merge(links, imdb_crew, left_on='imdbId', right_on='tconst')
+
+merged_df['directors'] = merged_df['directors'].astype(str)
+merged_df['directors'] = merged_df['directors'].str.split(',')
+
+directors_df = merged_df.explode('directors')
+directors_with_names_df = pd.merge(directors_df, imdb_names, left_on='directors', right_on='nconst')
+directors = directors_with_names_df[['movieId', 'primaryName']].drop_duplicates()
+
 ratings_matrix = ratings.pivot_table(index=['userId'], columns=['movieId'], values='rating')
 
 
@@ -102,6 +116,21 @@ def get_chatbot_response(user_input):
                 return "I couldn't find any similar movies."
         else:
             return "I couldn't find the movie you're looking for."
+    elif "director" in user_input_lower:
+            search_pattern = re.compile(r'\"(.*?)\"', re.IGNORECASE)
+            director = search_pattern.search(user_input)
+
+            if director:
+                director = director.group(1)
+                recommended_movies = recommend_movies_by_director(director, num_recommendations)
+
+                if not recommended_movies.empty:
+                    return "\n".join(recommended_movies['title'].tolist())
+                else:
+                    return "I couldn't find any movies for the specified director."
+            else:
+                return "Please specify the director you want recommendations for in double quotes. For example: \"Christopher Nolan\""
+
     elif "this genre" in user_input_lower:
         search_pattern = re.compile(r'\"(.*?)\"', re.IGNORECASE)
         genre = search_pattern.search(user_input)
@@ -125,6 +154,14 @@ def get_chatbot_response(user_input):
         return "I'm a chatbot, I don't have feelings. How can I help you?"
     else:
         return "I didn't understand your message. Please try again."
+def recommend_movies_by_director(director, num_recommendations=10):
+    print(directors_with_names_df['primaryName'].unique())  # Print all unique director names
+    director = director.lower()
+    director_movies = directors_with_names_df[directors_with_names_df['primaryName'].str.lower() == director]  # Also changed merged_df to directors_with_names_df
+    recommended_movies = director_movies.merge(ratings.groupby('movieId')['rating'].mean().reset_index(),
+                                               on='movieId').nlargest(num_recommendations, 'rating')
+    recommended_movies = pd.merge(recommended_movies, movies, on='movieId', how='left')
+    return recommended_movies[['title', 'genres', 'rating']]
 
 def recommend_movies_based_on_title(movie_id, num_recommendations=10):
     movie_similarity = cosine_similarity(ratings_matrix.fillna(0).T)
