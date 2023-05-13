@@ -10,6 +10,24 @@ ratings = pd.read_csv('ml-latest-small/ratings.csv')
 links = pd.read_csv('ml-latest-small/links.csv')
 imdb_crew = pd.read_csv('ml-latest-small/title_crew.tsv', delimiter='\t')
 imdb_names = pd.read_csv('ml-latest-small/name_basic.tsv', delimiter='\t')
+# Load principal cast data
+imdb_principals = pd.read_csv('ml-latest-small/title_principals.tsv', delimiter='\t')
+
+# Remove 'tt' prefix and convert 'tconst' to int
+imdb_principals['tconst'] = imdb_principals['tconst'].str[2:].astype(int)
+
+# Merge with links to get the movieId
+merged_principals = pd.merge(links, imdb_principals, left_on='imdbId', right_on='tconst')
+
+# 'Explode' the principals so there's one row per movieId-principal pair
+merged_principals['nconst'] = merged_principals['nconst'].str.split(',')
+principals_df = merged_principals.explode('nconst')
+
+# Merge with imdb_names to get the actor names
+actors_df = pd.merge(principals_df, imdb_names, left_on='nconst', right_on='nconst')
+
+
+
 
 imdb_crew['tconst'] = imdb_crew['tconst'].str[2:].astype(int)  # remove 'tt' prefix before converting
 merged_df = pd.merge(links, imdb_crew, left_on='imdbId', right_on='tconst')
@@ -130,7 +148,20 @@ def get_chatbot_response(user_input):
                     return "I couldn't find any movies for the specified director."
             else:
                 return "Please specify the director you want recommendations for in double quotes. For example: \"Christopher Nolan\""
+    elif "actor" in user_input_lower:
+        search_pattern = re.compile(r'\"(.*?)\"', re.IGNORECASE)
+        actor = search_pattern.search(user_input)
 
+        if actor:
+            actor = actor.group(1)
+            recommended_movies = recommend_movies_by_actor(actor, num_recommendations)
+
+            if not recommended_movies.empty:
+                return "\n".join(recommended_movies['title'].tolist())
+            else:
+                return "I couldn't find any movies with the specified actor."
+        else:
+            return "Please specify the actor you want recommendations for in double quotes. For example: \"Brad Pitt\""
     elif "this genre" in user_input_lower:
         search_pattern = re.compile(r'\"(.*?)\"', re.IGNORECASE)
         genre = search_pattern.search(user_input)
@@ -162,7 +193,13 @@ def recommend_movies_by_director(director, num_recommendations=10):
                                                on='movieId').nlargest(num_recommendations, 'rating')
     recommended_movies = pd.merge(recommended_movies, movies, on='movieId', how='left')
     return recommended_movies[['title', 'genres', 'rating']]
-
+def recommend_movies_by_actor(actor, num_recommendations=10):
+    actor = actor.lower()
+    actor_movies = actors_df[actors_df['primaryName'].str.lower() == actor]
+    recommended_movies = actor_movies.merge(ratings.groupby('movieId')['rating'].mean().reset_index(),
+                                            on='movieId').nlargest(num_recommendations, 'rating')
+    recommended_movies = pd.merge(recommended_movies, movies, on='movieId', how='left')
+    return recommended_movies[['title', 'genres', 'rating']]
 def recommend_movies_based_on_title(movie_id, num_recommendations=10):
     movie_similarity = cosine_similarity(ratings_matrix.fillna(0).T)
     movie_similarity = pd.DataFrame(movie_similarity, index=ratings_matrix.columns, columns=ratings_matrix.columns)
