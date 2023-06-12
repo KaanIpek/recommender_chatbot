@@ -5,39 +5,13 @@ import re
 
 app = Flask(__name__)
 
-from scipy.sparse import csr_matrix
-
-app = Flask(__name__)
-
-movies = pd.read_csv('ml-latest/movies.csv')
-ratings = pd.read_csv('ml-latest/ratings.csv')
-links = pd.read_csv('ml-latest/links.csv')
+movies = pd.read_csv('ml-latest-small/movies.csv')
+ratings = pd.read_csv('ml-latest-small/ratings.csv')
+links = pd.read_csv('ml-latest-small/links.csv')
 imdb_crew = pd.read_csv('ml-latest-small/title_crew.tsv', delimiter='\t')
 imdb_names = pd.read_csv('ml-latest-small/name_basic.tsv', delimiter='\t')
-# Load principal cast data
-chunksize = 10 ** 6  # adjust this value depending on your system's memory
 
-# Create an empty DataFrame to store the processed chunks
-principals_df = pd.DataFrame()
-
-for chunk in pd.read_csv('ml-latest-small/title_principals.tsv', delimiter='\t', chunksize=chunksize):
-    # Remove 'tt' prefix and convert 'tconst' to int
-    chunk['tconst'] = chunk['tconst'].str[2:].astype(int)
-
-    # Merge with links to get the movieId
-    merged_principals = pd.merge(links, chunk, left_on='imdbId', right_on='tconst')
-
-    # 'Explode' the principals so there's one row per movieId-principal pair
-    merged_principals['nconst'] = merged_principals['nconst'].str.split(',')
-    chunk_df = merged_principals.explode('nconst')
-
-    # Merge with imdb_names to get the actor names
-    actors_chunk_df = pd.merge(chunk_df, imdb_names, left_on='nconst', right_on='nconst')
-
-    # Append the processed chunk to the main DataFrame
-    principals_df = pd.concat([principals_df, actors_chunk_df])
-
-imdb_crew['tconst'] = imdb_crew['tconst'].str[2:].astype(int)  # remove 'tt' prefix before converting
+imdb_crew['tconst'] = imdb_crew['tconst'].str[2:].astype(int)
 merged_df = pd.merge(links, imdb_crew, left_on='imdbId', right_on='tconst')
 
 merged_df['directors'] = merged_df['directors'].astype(str)
@@ -47,8 +21,7 @@ directors_df = merged_df.explode('directors')
 directors_with_names_df = pd.merge(directors_df, imdb_names, left_on='directors', right_on='nconst')
 directors = directors_with_names_df[['movieId', 'primaryName']].drop_duplicates()
 
-# Create a sparse matrix
-sparse_ratings = csr_matrix((ratings['rating'], (ratings['userId'], ratings['movieId'])))
+ratings_matrix = ratings.pivot_table(index=['userId'], columns=['movieId'], values='rating')
 
 
 @app.route('/')
@@ -75,6 +48,9 @@ previous_genre = ""
 previous_genre_recommendations = set()
 previous_recommendation_count = 0
 movie_id = 0
+import openai
+
+openai.api_key = "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"
 def get_chatbot_response(user_input):
     global previous_recommendation_count
     global previous_recommendations
@@ -89,7 +65,7 @@ def get_chatbot_response(user_input):
     num_recommendations = search_pattern_num.search(user_input_lower)
     num_recommendations = int(num_recommendations.group(1)) if num_recommendations else 10
 
-    if "recommend" in user_input_lower or "i watch" in user_input_lower:
+    if "recommend" in user_input_lower or "i watched" in user_input_lower:
 
         if "more" in user_input_lower:
             previous_recommendation_count += 20
@@ -157,20 +133,7 @@ def get_chatbot_response(user_input):
                     return "I couldn't find any movies for the specified director."
             else:
                 return "Please specify the director you want recommendations for in double quotes. For example: \"Christopher Nolan\""
-    elif "actor" in user_input_lower:
-        search_pattern = re.compile(r'\"(.*?)\"', re.IGNORECASE)
-        actor = search_pattern.search(user_input)
 
-        if actor:
-            actor = actor.group(1)
-            recommended_movies = recommend_movies_by_actor(actor, num_recommendations)
-
-            if not recommended_movies.empty:
-                return "\n".join(recommended_movies['title'].tolist())
-            else:
-                return "I couldn't find any movies with the specified actor."
-        else:
-            return "Please specify the actor you want recommendations for in double quotes. For example: \"Brad Pitt\""
     elif "this genre" in user_input_lower:
         search_pattern = re.compile(r'\"(.*?)\"', re.IGNORECASE)
         genre = search_pattern.search(user_input)
@@ -193,7 +156,15 @@ def get_chatbot_response(user_input):
     elif "how are you" in user_input_lower:
         return "I'm a chatbot, I don't have feelings. How can I help you?"
     else:
-        return "I didn't understand your message. Please try again."
+        # GPT-3.5-turbo API'si kullanılır
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": user_input}
+            ]
+        )
+        return response['choices'][0]['message']['content']
 def recommend_movies_by_director(director, num_recommendations=10):
     print(directors_with_names_df['primaryName'].unique())  # Print all unique director names
     director = director.lower()
@@ -202,26 +173,25 @@ def recommend_movies_by_director(director, num_recommendations=10):
                                                on='movieId').nlargest(num_recommendations, 'rating')
     recommended_movies = pd.merge(recommended_movies, movies, on='movieId', how='left')
     return recommended_movies[['title', 'genres', 'rating']]
-def recommend_movies_by_actor(actor, num_recommendations=10):
-    actor = actor.lower()
-    actor_movies = principals_df[principals_df['primaryName'].str.lower() == actor]  # Changed from actors_chunk_df to principals_df
-    recommended_movies = actor_movies.merge(ratings.groupby('movieId')['rating'].mean().reset_index(),
-                                            on='movieId').nlargest(num_recommendations, 'rating')
-    recommended_movies = pd.merge(recommended_movies, movies, on='movieId', how='left')
-    return recommended_movies[['title', 'genres', 'rating']]
+
 
 def recommend_movies_based_on_title(movie_id, num_recommendations=10):
-    movie_similarity = cosine_similarity(sparse_ratings.fillna(0).T)
-    movie_similarity = pd.DataFrame(movie_similarity, index=sparse_ratings.columns, columns=sparse_ratings.columns)
+    movie_similarity = cosine_similarity(ratings_matrix.fillna(0).T)
+    movie_similarity = pd.DataFrame(movie_similarity, index=ratings_matrix.columns, columns=ratings_matrix.columns)
     similar_movies = movie_similarity.loc[movie_id].nlargest(num_recommendations + 1)[1:].index
-    common_movie_ids = set(similar_movies).intersection(sparse_ratings.columns)
-    ratings_for_similar_movies = sparse_ratings[list(common_movie_ids)]
+    common_movie_ids = set(similar_movies).intersection(ratings_matrix.columns)
+    ratings_for_similar_movies = ratings_matrix[list(common_movie_ids)]
     users_rated_similar_movies_highly = ratings_for_similar_movies.stack().reset_index().rename(columns={0: 'rating'}) \
         .loc[lambda df: df['movieId'].isin(common_movie_ids)] \
         .nlargest(num_recommendations, 'rating')['userId']
     recommended_movies = ratings.loc[lambda df: (df['userId'].isin(users_rated_similar_movies_highly)) &
-                                            (~df['movieId'].isin(sparse_ratings[movie_id].dropna().index))].groupby('movieId')['rating'].mean().reset_index().nlargest(num_recommendations, 'rating').merge(movies, on='movieId')
+                                                (~df['movieId'].isin(ratings_matrix[movie_id].dropna().index))].groupby(
+        'movieId')['rating'].mean().reset_index().nlargest(num_recommendations, 'rating').merge(movies, on='movieId')
+
+    recommended_movies = recommended_movies.sample(frac=1)  # Shuffles the rows of the DataFrame.
+
     return recommended_movies
+
 
 if __name__ == '__main__':
     app.run(debug=True)
