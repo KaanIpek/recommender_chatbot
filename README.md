@@ -32,4 +32,4 @@ Random chat: Any other input will be processed by GPT-3.5-turbo for a random cha
 Please note that for title, director, and genre, the input should be enclosed in double quotes.
 
 License
-This project is licensed under the MIT License.
+This project is licensed under the Apache License.
