@@ -71,10 +71,10 @@ def get_chatbot_response(user_input):
             previous_recommendation_count += 20
             recommended_movies = recommend_movies_based_on_title(movie_id, previous_recommendation_count)
 
-            # Yeni önerileri alın ve önceki önerileri çıkarın
+           
             new_recommendations = recommended_movies[~recommended_movies['title'].isin(previous_movie_recommendations)]
 
-            # Yeni önerileri önceki önerilere ekleyin
+            
             previous_movie_recommendations.update(new_recommendations['title'])
 
             return "\n".join(new_recommendations['title'].tolist())
