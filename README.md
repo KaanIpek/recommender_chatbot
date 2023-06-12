@@ -20,7 +20,7 @@ name_basic.tsv
 Running the Application
 To run the application, use the following command:
 
-python main.py
+python app2.py
 
 
 Available Commands Usage
