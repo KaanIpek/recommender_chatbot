@@ -50,7 +50,7 @@ previous_recommendation_count = 0
 movie_id = 0
 import openai
 
-openai.api_key = "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"
+
 def get_chatbot_response(user_input):
     global previous_recommendation_count
     global previous_recommendations
